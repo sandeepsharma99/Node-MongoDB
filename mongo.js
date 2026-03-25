@@ -2,6 +2,7 @@ import express from "express"
 import mongoose from "mongoose"
 import dotenv from "dotenv"
 import bcrypt from "bcrypt"
+import jwt from "jsonwebtoken"
 
 const PORT = 3000;
 const app = express();
@@ -30,11 +31,6 @@ app.post("/signup", async(req,res)=>{
     try{
         const email = req.body.email;
         const password = req.body.password;
-        
-        // Prevent bcrypt from crashing if password is not provided
-        if(!email || !password){
-            return res.status(400).json({error: "Email and password are required"})
-        }
 
         const hashedPassword = await bcrypt.hash(password,10)
 
@@ -45,6 +41,63 @@ app.post("/signup", async(req,res)=>{
         console.log(err)
         // Send an error response so the client doesn't hang
         res.status(500).json({error: "Failed to create user"})
+    }
+})
+
+// login route
+app.post("/login",async (req,res)=>{
+    try{
+        const email = req.body.email;
+        const password = req.body.password;
+
+        const user = await User.findOne({email:email})
+        if(!user) return res.status(404).json({message:"user not found"})
+        
+        const isMatch = await bcrypt.compare(password, user.password);
+        if(!isMatch) return res.status(404).json({message:"invalid crediential"})
+        
+
+        // jwt token assign
+        const token = jwt.sign({id:user._id,email:user.email},
+            process.env.jwt_secret,
+            {expiresIn:"1h"}
+        );
+        // console.log(token)
+        res.json({message:"login successfully", token});
+    }catch(err){
+        res.status(400).json({message:"invalid credential"});
+    }
+
+})
+
+// middleware
+
+const verifyToken = (req,res,next)=>{
+    const authHeader = req.headers.authorization;
+    if(!authHeader || !authHeader.startsWith("Bearer"))
+        return res
+            .status(401)
+            .json({message:"access denied, no token available"})
+
+    const token = authHeader.split(" ")[1]
+
+    try{
+        const decoded = jwt.verify(token,process.env.jwt_secret);
+        req.user = decoded;
+        next();
+    }catch(err){
+        res.status(401).json({message:"invalid token"})
+    }
+}
+
+app.get("/users",verifyToken,async (req,res)=>{
+    try{
+        const users =  await User.find();
+        if(!users)
+            return res.status(404).json({message:"something went wrong  "})
+        res.json(users);
+    }catch(err){
+        res.status(400).json({message:"error",err})
     }
 })
 
